@@ -1,4 +1,20 @@
+const Joi = require('joi');
+const emailService = require('../services/emailService');
+
 let users = [];
+
+// Joi schemas for input validation
+const userSchema = Joi.object({
+    name: Joi.string().required(),
+    email: Joi.string().email().required(),
+    age: Joi.number().integer().min(0).required()
+});
+
+const updateUserSchema = Joi.object({
+    name: Joi.string(),
+    email: Joi.string().email(),
+    age: Joi.number().integer().min(0)
+});
 
 const getAllUsers = (req, res) => {
     try {
@@ -23,15 +39,27 @@ const getUserById = (req, res) => {
 
 const createUser = (req, res) => {
     try {
-        const { name, email } = req.body;
-        if (!name || !email) {
-            return res.status(400).json({ message: 'Name and email are required' });
+        // Validate req.body data
+        const { error, value } = userSchema.validate(req.body);
+        if (error) {
+            return res.status(400).json({ message: error.details[0].message });
         }
+
+        const { name, email, age } = value;
         
+        // Grab uploaded file info if available
+        let profilePicture = null;
+        if (req.file) {
+            profilePicture = req.file.path;
+        }
+
         const id = Date.now().toString();
-        const newUser = { id, name, email };
+        const newUser = { id, name, email, age, profilePicture };
         users.push(newUser);
-        
+
+        // Send a welcome email asynchronously
+        emailService.sendWelcomeEmail(name, email);
+
         res.status(201).json(newUser);
     } catch (error) {
         res.status(500).json({ message: 'Internal server error', error: error.message });
@@ -41,7 +69,12 @@ const createUser = (req, res) => {
 const updateUser = (req, res) => {
     try {
         const { id } = req.params;
-        const { name, email } = req.body;
+        
+        // Validate req.body update payload
+        const { error, value } = updateUserSchema.validate(req.body);
+        if (error) {
+            return res.status(400).json({ message: error.details[0].message });
+        }
         
         const userIndex = users.findIndex(u => u.id === id);
         if (userIndex === -1) {
@@ -49,8 +82,15 @@ const updateUser = (req, res) => {
         }
         
         const updatedUser = { ...users[userIndex] };
-        if (name !== undefined) updatedUser.name = name;
-        if (email !== undefined) updatedUser.email = email;
+        
+        if (value.name !== undefined) updatedUser.name = value.name;
+        if (value.email !== undefined) updatedUser.email = value.email;
+        if (value.age !== undefined) updatedUser.age = value.age;
+        
+        // Update profile picture if a new file is uploaded
+        if (req.file) {
+            updatedUser.profilePicture = req.file.path;
+        }
         
         users[userIndex] = updatedUser;
         
